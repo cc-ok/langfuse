@@ -7,6 +7,8 @@ RUN apk update && apk upgrade --no-cache libcrypto3 libssl3 libc6-compat busybox
 
 FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine AS build-base
 # Pin turbo to avoid nondeterministic prune output from future patch releases.
+RUN npm config set registry https://registry.npmmirror.com
+ENV PNPM_REGISTRY=https://registry.npmmirror.com
 RUN npm install turbo@2.10.5 --global
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"

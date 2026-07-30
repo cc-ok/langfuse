@@ -36,11 +36,13 @@ CREATE TABLE observations (
 PRIMARY KEY (
     project_id,
     `type`,
+    trace_id,
     toDate(start_time)
 )
 ORDER BY (
     project_id,
     `type`,
+    trace_id,
     toDate(start_time),
     id
 );

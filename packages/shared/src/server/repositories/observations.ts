@@ -2053,6 +2053,68 @@ export const generateObservationsForPublicApi = async ({
 
   const disableObservationsFinal = await shouldSkipObservationsFinal(projectId);
 
+  // 优化：当过滤条件限定在 observations 表且包含 trace_id 时，跳过 CTE 直接点查
+  // trace_id 将结果集限定在单个 trace 内（最多几十到几百条），
+  // CTE 的 DISTINCT + 全量排序 + 两趟回表纯属浪费，直接用 PK 点查
+  const isTraceIdOnly =
+    !traceFilter &&
+    filter.some((f) => f.field === "trace_id") &&
+    filter.filter((f) => f.clickhouseTable !== "observations").length() === 0;
+
+  if (isTraceIdOnly) {
+    const query = `
+      SELECT
+        id,
+        trace_id,
+        project_id,
+        type,
+        parent_observation_id,
+        environment,
+        start_time,
+        end_time,
+        name,
+        metadata,
+        level,
+        status_message,
+        version,
+        input,
+        output,
+        provided_model_name,
+        internal_model_id,
+        model_parameters,
+        provided_usage_details,
+        usage_details,
+        provided_cost_details,
+        cost_details,
+        total_cost,
+        completion_start_time,
+        prompt_id,
+        prompt_name,
+        prompt_version,
+        created_at,
+        updated_at,
+        event_ts
+      FROM observations o FINAL
+      WHERE o.project_id = {projectId: String}
+        AND ${appliedFilter.query}
+      ORDER BY start_time DESC
+      LIMIT {limit: Int32} OFFSET {offset: Int32}
+    `;
+
+    const result = await queryClickhouse<ObservationRecordReadType>({
+      query,
+      params: {
+        ...appliedFilter.params,
+        projectId,
+        limit: pagination.limit,
+        offset: (pagination.page - 1) * pagination.limit,
+      },
+      tags: { projectId },
+      preferredClickhouseService: "ReadOnly",
+    });
+    return result.map((r) => convertObservation(r));
+  }
+
   const query = `
     with clickhouse_keys as (
       SELECT DISTINCT

@@ -307,20 +307,32 @@ export const ChatMlMessageSchema = BaseChatMlMessageSchema.refine(
       tool_call_id,
       thinking,
       redacted_thinking,
+      reasoning_content,
       ...other
-    }) => ({
-      role,
-      name,
-      content,
-      audio,
-      type,
-      tools,
-      tool_calls,
-      tool_call_id,
-      thinking,
-      redacted_thinking,
-      ...(Object.keys(other).length === 0 ? {} : { json: other }),
-    }),
+    }) => {
+      // Merge reasoning_content (from DeepSeek etc.) into thinking
+      const mergedThinking = [
+        ...(Array.isArray(thinking) ? thinking : []),
+        ...(Array.isArray(reasoning_content)
+          ? reasoning_content
+          : typeof reasoning_content === "string"
+            ? [{ type: "thinking" as const, content: reasoning_content }]
+            : []),
+      ];
+      return {
+        role,
+        name,
+        content,
+        audio,
+        type,
+        tools,
+        tool_calls,
+        tool_call_id,
+        ...(mergedThinking.length > 0 ? { thinking: mergedThinking } : { thinking: undefined }),
+        redacted_thinking,
+        ...(Object.keys(other).length === 0 ? {} : { json: other }),
+      };
+    },
   );
 
 export const ChatMlArraySchema = z.array(ChatMlMessageSchema).min(1);

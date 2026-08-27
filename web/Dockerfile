@@ -7,6 +7,8 @@ RUN apk update && apk upgrade --no-cache libcrypto3 libssl3 libc6-compat busybox
 
 FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine AS build-base
 # Pin turbo to avoid nondeterministic prune output from future patch releases.
+RUN npm config set registry https://registry.npmmirror.com
+ENV PNPM_REGISTRY=https://registry.npmmirror.com
 RUN npm install turbo@2.10.5 --global
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -31,7 +33,7 @@ ENV CGO_ENABLED=0 \
 # compile this ourselves instead of downloading the upstream release
 # because prebuilt bins bundle many unused drivers and thus inherit CVEs
 # eg.: https://github.com/golang-migrate/migrate/issues/1357
-RUN /usr/local/go/bin/go install -trimpath -tags 'clickhouse' -ldflags='-s -w' \
+RUN GOPROXY=https://goproxy.cn,direct /usr/local/go/bin/go install -trimpath -tags 'clickhouse' -ldflags='-s -w' \
     github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
 
 FROM --platform=${TARGETPLATFORM:-linux/amd64} build-base AS pruner
@@ -113,6 +115,11 @@ ENV SENTRY_ORG=$SENTRY_ORG
 ARG SENTRY_PROJECT
 ENV SENTRY_PROJECT=$SENTRY_PROJECT
 
+# CSP needs the media upload endpoint at build time so that img-src / media-src
+# directives include the S3-compatible storage origin (e.g. self-hosted MinIO).
+ARG LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+ENV LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=$LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+
 # Accept build id as NEXT_PUBLIC_BUILD_ID
 ARG NEXT_PUBLIC_BUILD_ID
 ENV NEXT_PUBLIC_BUILD_ID=$NEXT_PUBLIC_BUILD_ID
@@ -156,6 +163,8 @@ ENV DOCKER_BUILD 0
 ENV NEXT_MANUAL_SIG_HANDLE true
 
 RUN apk add --no-cache dumb-init tzdata
+
+RUN npm config set registry https://registry.npmmirror.com
 
 # Don't run production as root
 ARG UID=1001

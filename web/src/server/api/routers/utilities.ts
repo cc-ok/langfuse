@@ -23,6 +23,16 @@ export const isValidAndSecureUrl = async (
 ): Promise<boolean> => {
   try {
     const url = parseOutboundUrl(urlString);
+
+    // Allowlisted hosts bypass all security validation (e.g. self-hosted MinIO)
+    const allowedHosts = (process.env.LANGFUSE_ALLOWED_IMAGE_HOSTS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (allowedHosts.includes(url.hostname)) {
+      return true;
+    }
+
     if (url.protocol !== "https:") {
       return false;
     }

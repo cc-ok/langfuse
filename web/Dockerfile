@@ -12,6 +12,7 @@ ENV PNPM_REGISTRY=https://registry.npmmirror.com
 RUN npm install turbo@2.10.5 --global
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
 RUN corepack enable
 RUN corepack prepare pnpm@11.22.0 --activate
 

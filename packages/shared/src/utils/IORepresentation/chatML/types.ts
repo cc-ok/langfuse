@@ -358,7 +358,9 @@ export const ChatMlMessageSchema = BaseChatMlMessageSchema.refine(
         tools,
         tool_calls,
         tool_call_id,
-        ...(mergedThinking.length > 0 ? { thinking: mergedThinking } : { thinking: undefined }),
+        ...(mergedThinking.length > 0
+          ? { thinking: mergedThinking }
+          : { thinking: undefined }),
         redacted_thinking,
         ...(Object.keys(other).length === 0 ? {} : { json: other }),
       };

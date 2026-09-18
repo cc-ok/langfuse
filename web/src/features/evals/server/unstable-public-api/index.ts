@@ -6,6 +6,10 @@ export {
   updatePublicEvaluationRule,
 } from "./evaluation-rule-service";
 export {
+  cancelPublicExperimentEvaluationJobs,
+  getPublicExperimentEvaluationJobStatus,
+} from "./evaluation-job-service";
+export {
   createPublicEvaluator,
   deletePublicEvaluator,
   getPublicEvaluator,

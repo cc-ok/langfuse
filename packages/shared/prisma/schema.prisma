@@ -1099,6 +1099,11 @@ model JobExecution {
 
   jobInputDatasetItemValidFrom DateTime? @map("job_input_dataset_item_valid_from")
 
+  // Experiment run (= dataset_runs.id) that the evaluated target belongs to.
+  // Null for non-experiment evaluations. No fk constraint - experiments are
+  // derived from events, so they can be deleted without removing job history.
+  jobInputExperimentId String? @map("job_input_experiment_id")
+
   jobOutputScoreId String? @map("job_output_score_id")
 
   executionTraceId String? @map("execution_trace_id")
@@ -1106,6 +1111,7 @@ model JobExecution {
   @@index([projectId, jobConfigurationId, jobInputTraceId])
   @@index([projectId, jobOutputScoreId])
   @@index([jobConfigurationId])
+  @@index([projectId, jobInputExperimentId, status])
   @@map("job_executions")
 }
 

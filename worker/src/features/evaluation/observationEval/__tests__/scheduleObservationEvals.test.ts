@@ -409,9 +409,29 @@ describe("scheduleObservationEvals", () => {
         jobConfigurationId: "config-1",
         jobInputTraceId: "trace-456",
         jobInputObservationId: "obs-123",
+        jobInputExperimentId: null,
         jobTemplateId: config.evalTemplateId,
         status: JobExecutionStatus.PENDING,
       });
+    });
+
+    it("should carry the experiment run id of the evaluated target", async () => {
+      const schedulerDeps = createMockSchedulerDeps();
+      const observation = createMockObservation({
+        experiment_id: "exp-123",
+        experiment_item_root_span_id: "obs-123",
+      });
+      const config = createMockConfig();
+
+      await scheduleObservationEvals({
+        observation,
+        configs: [config],
+        schedulerDeps,
+      });
+
+      expect(schedulerDeps.upsertJobExecution).toHaveBeenCalledWith(
+        expect.objectContaining({ jobInputExperimentId: "exp-123" }),
+      );
     });
 
     it("should enqueue job with correct parameters", async () => {

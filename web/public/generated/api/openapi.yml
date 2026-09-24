@@ -8727,6 +8727,150 @@ paths:
               schema:
                 $ref: '#/components/schemas/unstablePublicApiError'
       security: *ref_0
+  /api/public/unstable/evaluation-jobs/status:
+    get:
+      description: |-
+        Get the evaluation job status of an experiment run.
+
+        Use this to decide whether scoring has finished before reading scores,
+        instead of polling the scores themselves.
+
+        Job statuses:
+        - `PENDING` — scheduled, waiting for an executor
+        - `DELAYED` — failed with a retryable model error, waiting to be retried
+        - `COMPLETED` — finished and produced a score
+        - `ERROR` — failed permanently
+        - `CANCELLED` — stopped before producing a score
+
+        `PENDING` and `DELAYED` are the in-flight states. `COMPLETED` means the
+        score was handed to ingestion, not that it is already queryable, so
+        allow a short grace period before reading scores.
+
+        The experiment run is not validated: an unknown experiment reports all
+        counts as `0`.
+      operationId: unstable_evaluationJobs_getStatus
+      tags:
+        - UnstableEvaluationJobs
+      parameters:
+        - name: experimentId
+          in: query
+          description: Experiment run identifier (= dataset run id) to inspect.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstableExperimentEvaluationJobStatus'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '403':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '405':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '429':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+      security: *ref_0
+  /api/public/unstable/evaluation-jobs/cancel:
+    post:
+      description: |-
+        Cancel the evaluation jobs of an experiment run.
+
+        Cancels every job of the experiment that has not started yet, i.e. jobs
+        in `PENDING` or `DELAYED`. Cancelled jobs stay in the evaluation log and
+        are short-circuited by the executor, so they neither call the model nor
+        produce a score.
+
+        Jobs that are already executing are not preempted and may still finish
+        and produce a score. Completed, failed, and already cancelled jobs are
+        left untouched, so the call is idempotent.
+      operationId: unstable_evaluationJobs_cancel
+      tags:
+        - UnstableEvaluationJobs
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstableCancelEvaluationJobsResponse'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '403':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '405':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '429':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+      security: *ref_0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/unstableCancelEvaluationJobsRequest'
 components:
   schemas:
     AnnotationQueueStatus:
@@ -17357,6 +17501,54 @@ components:
       required:
         - message
         - code
+    unstableExperimentEvaluationJobStatus:
+      title: unstableExperimentEvaluationJobStatus
+      type: object
+      description: Evaluation job counts of an experiment run, grouped by job status.
+      properties:
+        experimentId:
+          type: string
+          description: Experiment run identifier (= dataset run id) that was inspected.
+        byStatus:
+          type: object
+          additionalProperties:
+            type: integer
+          description: >-
+            Number of evaluation jobs per job status. Always contains the keys
+
+            `PENDING`, `DELAYED`, `COMPLETED`, `ERROR`, and `CANCELLED`, using
+            `0`
+
+            for statuses that do not occur.
+      required:
+        - experimentId
+        - byStatus
+    unstableCancelEvaluationJobsRequest:
+      title: unstableCancelEvaluationJobsRequest
+      type: object
+      properties:
+        experimentId:
+          type: string
+          description: >-
+            Experiment run identifier (= dataset run id) whose not-yet-started
+            evaluation jobs should be cancelled.
+      required:
+        - experimentId
+    unstableCancelEvaluationJobsResponse:
+      title: unstableCancelEvaluationJobsResponse
+      type: object
+      properties:
+        experimentId:
+          type: string
+          description: >-
+            Experiment run identifier (= dataset run id) whose jobs were
+            cancelled.
+        cancelled:
+          type: integer
+          description: Number of evaluation jobs moved to `CANCELLED` by this call.
+      required:
+        - experimentId
+        - cancelled
     utilsMetaResponse:
       title: utilsMetaResponse
       type: object

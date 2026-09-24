@@ -95,6 +95,8 @@ export interface ObservationEvalSchedulerDeps {
     jobConfigurationId: string;
     jobInputTraceId: string;
     jobInputObservationId: string;
+    /** Experiment run of the evaluated target; null outside experiments. */
+    jobInputExperimentId: string | null;
     jobTemplateId: string | null;
     status: JobExecutionStatus;
   }) => Promise<{ id: string }>;

@@ -252,6 +252,9 @@ async function processMatchingConfig(
     jobConfigurationId: matchingConfig.id,
     jobInputTraceId: observation.trace_id,
     jobInputObservationId: observation.span_id,
+    // Only set inside experiment runs, so experiment-scoped status and
+    // cancellation can address job executions without joining to ClickHouse.
+    jobInputExperimentId: observation.experiment_id ?? null,
     // Legacy configs pin their `eval_templates` row here. Evaluator v2 jobs
     // resolve the definition at pickup, and record the version that actually
     // ran in the execution metadata instead.

@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { JobExecutionStatus } from "@prisma/client";
 import { EvalTemplateType } from "@langfuse/shared/src/db";
 
 const addToLLMQueue = vi.fn();
 const addToCodeQueue = vi.fn();
 const getLLMQueueInstance = vi.fn(() => ({ add: addToLLMQueue }));
 const getCodeQueueInstance = vi.fn(() => ({ add: addToCodeQueue }));
+const { upsertJobExecution } = vi.hoisted(() => ({
+  upsertJobExecution: vi.fn(),
+}));
 
 vi.mock("@langfuse/shared/src/server", async () => {
   const actual = await vi.importActual("@langfuse/shared/src/server");
@@ -16,6 +20,17 @@ vi.mock("@langfuse/shared/src/server", async () => {
     },
     CodeEvalExecutionQueue: {
       getInstance: getCodeQueueInstance,
+    },
+  };
+});
+
+vi.mock("@langfuse/shared/src/db", async () => {
+  const actual = await vi.importActual("@langfuse/shared/src/db");
+
+  return {
+    ...actual,
+    prisma: {
+      jobExecution: { upsert: upsertJobExecution },
     },
   };
 });
@@ -105,6 +120,53 @@ describe("createObservationEvalSchedulerDeps", () => {
         }),
       }),
       { delay: 0 },
+    );
+  });
+
+  const jobExecutionParams = (jobInputExperimentId: string | null) => ({
+    id: "job-3",
+    projectId: "project-1",
+    jobConfigurationId: "rule-1",
+    jobInputTraceId: "trace-1",
+    jobInputObservationId: "obs-1",
+    jobInputExperimentId,
+    jobTemplateId: null,
+    status: JobExecutionStatus.PENDING,
+  });
+
+  it("persists the experiment run the evaluated target belongs to", async () => {
+    upsertJobExecution.mockResolvedValue({ id: "job-3" });
+    const { createObservationEvalSchedulerDeps } =
+      await import("../createSchedulerDeps");
+
+    await createObservationEvalSchedulerDeps().upsertJobExecution(
+      jobExecutionParams("exp-1"),
+    );
+
+    expect(upsertJobExecution).toHaveBeenCalledWith({
+      where: { id: "job-3", projectId: "project-1" },
+      create: expect.objectContaining({
+        jobInputExperimentId: "exp-1",
+        status: JobExecutionStatus.PENDING,
+      }),
+      // The evaluated target never changes experiment, so it is write-once.
+      update: { status: JobExecutionStatus.PENDING },
+    });
+  });
+
+  it("persists a null experiment id outside experiment runs", async () => {
+    upsertJobExecution.mockResolvedValue({ id: "job-3" });
+    const { createObservationEvalSchedulerDeps } =
+      await import("../createSchedulerDeps");
+
+    await createObservationEvalSchedulerDeps().upsertJobExecution(
+      jobExecutionParams(null),
+    );
+
+    expect(upsertJobExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ jobInputExperimentId: null }),
+      }),
     );
   });
 });

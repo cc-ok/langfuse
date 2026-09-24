@@ -7,9 +7,16 @@ RUN apk update && apk upgrade --no-cache libcrypto3 libssl3 libc6-compat busybox
 
 FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine AS build-base
 # Pin turbo to avoid nondeterministic prune output from future patch releases.
+RUN npm config set registry https://registry.npmmirror.com
+ENV PNPM_REGISTRY=https://registry.npmmirror.com
+# Prisma downloads its query engines from binaries.prisma.sh (Cloudflare), which
+# stalls on CN networks. Use the npmmirror binary mirror like the registries above.
+ENV PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
 RUN npm install turbo@2.10.5 --global
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+# Keep corepack's pnpm fetch on the CN mirror.
+ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
 # Pass --build-arg NODE_USE_ENV_PROXY=1 when building behind a proxy.
 ARG NODE_USE_ENV_PROXY
 RUN npm install --global corepack@0.36.0 \

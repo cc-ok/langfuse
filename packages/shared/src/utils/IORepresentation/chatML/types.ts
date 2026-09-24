@@ -353,20 +353,32 @@ export const ChatMlMessageSchema = BaseChatMlMessageSchema.refine(
       tool_call_id,
       thinking,
       redacted_thinking,
+      reasoning_content,
       ...other
-    }) => ({
-      role,
-      name,
-      content,
-      audio,
-      type,
-      tools,
-      tool_calls,
-      tool_call_id,
-      thinking,
-      redacted_thinking,
-      ...(Object.keys(other).length === 0 ? {} : { json: other }),
-    }),
+    }) => {
+      // OpenAI-compatible providers (DeepSeek, Volcengine, Moonshot) send the
+      // reasoning text as a `reasoning_content` sibling; merge it into
+      // `thinking` instead of leaving it in the `json` passthrough.
+      const mergedThinking: ThinkingContentPart[] = [...(thinking ?? [])];
+      if (Array.isArray(reasoning_content)) {
+        mergedThinking.push(...(reasoning_content as ThinkingContentPart[]));
+      } else if (typeof reasoning_content === "string") {
+        mergedThinking.push({ type: "thinking", content: reasoning_content });
+      }
+      return {
+        role,
+        name,
+        content,
+        audio,
+        type,
+        tools,
+        tool_calls,
+        tool_call_id,
+        thinking: mergedThinking.length > 0 ? mergedThinking : undefined,
+        redacted_thinking,
+        ...(Object.keys(other).length === 0 ? {} : { json: other }),
+      };
+    },
   );
 
 export const ChatMlArraySchema = z.array(ChatMlMessageSchema).min(1);

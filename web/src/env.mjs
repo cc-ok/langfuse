@@ -477,6 +477,9 @@ export const env = createEnv({
       .default(3600),
     LANGFUSE_S3_MEDIA_UPLOAD_SSE: z.enum(["AES256", "aws:kms"]).optional(),
     LANGFUSE_S3_MEDIA_UPLOAD_SSE_KMS_KEY_ID: z.string().optional(),
+    // Comma-separated image hosts that skip outbound URL validation, for
+    // self-hosted S3-compatible storage reachable on a private host or over http.
+    LANGFUSE_ALLOWED_IMAGE_HOSTS: z.string().default(""),
 
     // S3 batch export bucket; must match the worker's config so the exports
     // page can mint fresh short-lived download URLs for stored export files
@@ -1179,6 +1182,7 @@ export const env = createEnv({
     LANGFUSE_S3_MEDIA_UPLOAD_SSE: process.env.LANGFUSE_S3_MEDIA_UPLOAD_SSE,
     LANGFUSE_S3_MEDIA_UPLOAD_SSE_KMS_KEY_ID:
       process.env.LANGFUSE_S3_MEDIA_UPLOAD_SSE_KMS_KEY_ID,
+    LANGFUSE_ALLOWED_IMAGE_HOSTS: process.env.LANGFUSE_ALLOWED_IMAGE_HOSTS,
     // S3 batch export
     LANGFUSE_S3_BATCH_EXPORT_BUCKET:
       process.env.LANGFUSE_S3_BATCH_EXPORT_BUCKET,

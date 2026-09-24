@@ -30,7 +30,12 @@ FROM --platform=${TARGETPLATFORM:-linux/amd64} base AS build-base
 # Pin turbo to avoid nondeterministic prune output from future patch releases.
 # pnpm is installed pinned via npm instead of corepack: the corepack shim would
 # fetch pnpm from an unpinned CDN on first use.
-RUN npm install -g turbo@2.11.9 pnpm@12.16.1
+# CN mirror: registry.npmjs.org and binaries.prisma.sh both stall on CN networks
+# (Prisma's engine fetch opens a connection and then transfers nothing).
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm install -g turbo@2.11.9 pnpm@12.16.1
+ENV PNPM_REGISTRY=https://registry.npmmirror.com
+ENV PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
 # Pass --build-arg NODE_USE_ENV_PROXY=1 when building behind a proxy.
 ARG NODE_USE_ENV_PROXY
 
@@ -139,7 +144,7 @@ ENV GOFIPS140=v1.0.0
 # compile this ourselves instead of downloading the upstream release
 # because prebuilt bins bundle many unused drivers and thus inherit CVEs
 # eg.: https://github.com/golang-migrate/migrate/issues/1357
-RUN /usr/local/go/bin/go install -trimpath -tags 'clickhouse' -ldflags='-s -w' \
+RUN GOPROXY=https://goproxy.cn,direct /usr/local/go/bin/go install -trimpath -tags 'clickhouse' -ldflags='-s -w' \
     github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
 
 FROM --platform=${TARGETPLATFORM:-linux/amd64} build-base AS pruner
@@ -222,6 +227,11 @@ ARG SENTRY_ORG
 ENV SENTRY_ORG=$SENTRY_ORG
 ARG SENTRY_PROJECT
 ENV SENTRY_PROJECT=$SENTRY_PROJECT
+
+# CSP needs the media upload endpoint at build time so that img-src / media-src
+# directives include the S3-compatible storage origin (e.g. self-hosted MinIO).
+ARG LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+ENV LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=$LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
 
 # Accept build id as NEXT_PUBLIC_BUILD_ID
 ARG NEXT_PUBLIC_BUILD_ID

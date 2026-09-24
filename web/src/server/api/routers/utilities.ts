@@ -10,6 +10,7 @@ import {
   validateOutboundUrlHost,
   type ValidateOutboundUrlHostOptions,
 } from "@langfuse/shared/src/server";
+import { env } from "@/src/env.mjs";
 
 const MAX_IMAGE_URL_REDIRECTS = 5;
 const IMAGE_URL_VALIDATION_OPTIONS = {
@@ -18,11 +19,28 @@ const IMAGE_URL_VALIDATION_OPTIONS = {
   shouldSkipDnsCheckForLiteralIps: true,
 } satisfies Omit<ValidateOutboundUrlHostOptions, "url">;
 
+/**
+ * Operator-provided hosts that skip image URL validation entirely, for
+ * self-hosted S3-compatible storage that is only reachable on a private host or
+ * over plain http. Parsed once: the list is static for the process lifetime.
+ */
+const ALLOWED_IMAGE_HOSTS = new Set(
+  env.LANGFUSE_ALLOWED_IMAGE_HOSTS.split(",")
+    .map((host) => host.trim())
+    .filter(Boolean),
+);
+
 export const isValidAndSecureUrl = async (
   urlString: string,
 ): Promise<boolean> => {
   try {
     const url = parseOutboundUrl(urlString);
+
+    // Allowlisted hosts bypass all security validation (e.g. self-hosted MinIO)
+    if (ALLOWED_IMAGE_HOSTS.has(url.hostname)) {
+      return true;
+    }
+
     if (url.protocol !== "https:") {
       return false;
     }

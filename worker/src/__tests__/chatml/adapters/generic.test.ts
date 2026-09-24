@@ -139,4 +139,38 @@ describe("Generic Adapter", () => {
 
     expect(() => genericAdapter.preprocess(input, "input", {})).not.toThrow();
   });
+
+  it("should merge a string reasoning_content into thinking", () => {
+    const result = normalizeOutput({
+      role: "assistant",
+      content: "Final answer",
+      reasoning_content: "Step by step",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([
+      expect.objectContaining({
+        thinking: [{ type: "thinking", content: "Step by step" }],
+      }),
+    ]);
+  });
+
+  it("should merge an array reasoning_content after existing thinking", () => {
+    const result = normalizeOutput({
+      role: "assistant",
+      content: "Final answer",
+      thinking: [{ type: "thinking", content: "First" }],
+      reasoning_content: [{ type: "thinking", content: "Second" }],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([
+      expect.objectContaining({
+        thinking: [
+          { type: "thinking", content: "First" },
+          { type: "thinking", content: "Second" },
+        ],
+      }),
+    ]);
+  });
 });

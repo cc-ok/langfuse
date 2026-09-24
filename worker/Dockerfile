@@ -30,7 +30,12 @@ FROM --platform=${TARGETPLATFORM:-linux/amd64} base AS build-base
 # Pin turbo to avoid nondeterministic prune output from future patch releases.
 # pnpm is installed pinned via npm instead of corepack: the corepack shim would
 # fetch pnpm from an unpinned CDN on first use.
-RUN npm install -g turbo@2.11.9 pnpm@12.16.1
+# CN mirror: registry.npmjs.org and binaries.prisma.sh both stall on CN networks
+# (Prisma's engine fetch opens a connection and then transfers nothing).
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm install -g turbo@2.11.9 pnpm@12.16.1
+ENV PNPM_REGISTRY=https://registry.npmmirror.com
+ENV PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
 # Pass --build-arg NODE_USE_ENV_PROXY=1 when building behind a proxy.
 ARG NODE_USE_ENV_PROXY
 

@@ -24,6 +24,7 @@ export function createObservationEvalSchedulerDeps(): ObservationEvalSchedulerDe
         jobConfigurationId,
         jobInputTraceId,
         jobInputObservationId,
+        jobInputExperimentId,
         jobTemplateId,
         status,
       } = params;
@@ -39,10 +40,13 @@ export function createObservationEvalSchedulerDeps(): ObservationEvalSchedulerDe
           jobConfigurationId,
           jobInputTraceId,
           jobInputObservationId,
+          jobInputExperimentId,
           jobTemplateId,
           status,
           startTime: new Date(),
         },
+        // The evaluated target never moves between experiments, so the
+        // experiment id is write-once and deliberately absent from `update`.
         update: {
           status,
         },

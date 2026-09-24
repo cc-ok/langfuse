@@ -714,6 +714,8 @@ export { getExperimentItemsBatchIO } from "./repositories/experiments";
 export { getExperimentNamesFromEvents } from "./repositories/experiments";
 export { getEvaluatorExecutionStatusCounts } from "./repositories/job-executions";
 export { getEvaluatorExecutionStatusCountsByEvaluatorId } from "./repositories/job-executions";
+export { getExperimentJobStatusCounts } from "./repositories/job-executions";
+export { cancelExperimentJobs } from "./repositories/job-executions";
 export { generateDailyMetrics } from "./repositories/daily-metrics";
 export { getDailyMetricsCount } from "./repositories/daily-metrics";
 export { createOrFetchDatasetRun } from "./repositories/dataset-runs";

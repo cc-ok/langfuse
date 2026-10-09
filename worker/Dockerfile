@@ -135,18 +135,45 @@ RUN dnf -y install --setopt=install_weak_deps=0 gcc tar gzip && \
 # packages/native/rust-toolchain.toml (bump the two together), checksum-verified
 # like the dumb-init binary above. Only rustc, cargo and the target's std are
 # needed to build; clippy and rustfmt run outside Docker.
+#
+# Dist mirror: static.rust-lang.org serves this ~330 MB tarball at ~70 KB/s from
+# CN networks (it stalls rather than failing, like the registries above), so the
+# download never finishes in a build. Same idea as the npm/prisma/cargo mirrors
+# in this file; the sha256 below still pins exactly what is installed. Override
+# with `--build-arg RUST_DIST_BASE=https://static.rust-lang.org` to go direct.
+ARG RUST_DIST_BASE=https://mirrors.ustc.edu.cn/rust-static
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
     amd64) triple=x86_64-unknown-linux-gnu; toolchain_sha256=aa30409afa67bd1ada244cefd82c7980e6a65bc113bb978e934b2413c75e3900 ;; \
     arm64) triple=aarch64-unknown-linux-gnu; toolchain_sha256=5fbb4282403046d52a4672765c6761a809bf9f33e699b17e6eb7a93ab7770cc3 ;; \
     *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/rust.tar.gz "https://static.rust-lang.org/dist/rust-1.98.0-${triple}.tar.gz"; \
+    curl -fsSL -o /tmp/rust.tar.gz "${RUST_DIST_BASE}/dist/rust-1.98.0-${triple}.tar.gz"; \
     echo "${toolchain_sha256}  /tmp/rust.tar.gz" | sha256sum -c -; \
     tar -xzf /tmp/rust.tar.gz -C /tmp; \
     /tmp/rust-1.98.0-${triple}/install.sh --prefix=/usr/local \
     --components=rustc,cargo,rust-std-${triple}; \
     rm -rf /tmp/rust.tar.gz /tmp/rust-1.98.0-${triple}
+
+# Cargo: CN sparse mirror + no HTTP/2 multiplexing.
+# crates.io serves its index/static endpoints through Fastly, which on CN
+# networks stalls instead of failing: we have seen a single `cargo metadata`
+# burn 20+ minutes on 7s of CPU with the sockets stuck in CLOSE_WAIT while the
+# VM sat idle. Route cargo through the rsproxy.cn sparse mirror (same idea as
+# the npm/prisma/goproxy mirrors used elsewhere in this file) and force
+# HTTP/1.1 so a stalled connection fails fast and is retried. CARGO_HOME is
+# pinned so the builder stage below inherits this config and the registry cache.
+ENV CARGO_HOME=/usr/local/cargo
+RUN mkdir -p "$CARGO_HOME" && \
+    printf '%s\n' \
+    '[source.crates-io]' \
+    'replace-with = "rsproxy-sparse"' \
+    '' \
+    '[source.rsproxy-sparse]' \
+    'registry = "sparse+https://rsproxy.cn/index/"' \
+    > "$CARGO_HOME/config.toml"
+ENV CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_NET_RETRY=10
 
 # cargo-about renders the third-party license notices for the native addon's
 # Rust dependencies. cargo-auditable embeds the addon's resolved dependency
@@ -189,13 +216,22 @@ ARG NEXT_PUBLIC_POSTHOG_HOST
 # Copy source code of isolated subworkspace
 COPY --from=pruner /app/out/full/ .
 
-RUN CARGO=/usr/local/bin/cargo-auditable-shim turbo run build --filter=worker...
+# Cargo cache mounts: without these, $CARGO_HOME/registry and
+# packages/native/target live only in this RUN's writable layer, so every build
+# that invalidates the `COPY --from=pruner /app/out/full/ .` layer above
+# re-downloads all crates and recompiles the whole Rust tree from scratch.
+# The napi artifact (langfuse-native.<target>.node) is written to the package
+# root, not into target/, so caching target/ does not hide build outputs.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/app/packages/native/target,sharing=locked \
+    CARGO=/usr/local/bin/cargo-auditable-shim turbo run build --filter=worker...
 
 # Runs after the build so `cargo fetch` adds the sources the build skipped (dev
 # and other-target dependencies) that cargo metadata still reads; `generate`
 # then reads licenses only from local crate sources and fails on any dependency
 # whose license packages/native/about.toml does not accept.
-RUN cd packages/native && \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    cd packages/native && \
     mkdir -p /usr/share/licenses/langfuse-native && \
     cargo fetch --locked && \
     cargo about generate --frozen --fail about.hbs \

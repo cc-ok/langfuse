@@ -73,6 +73,20 @@ const OTEL_GENAI_PART_HANDLERS = {
     normalizeOtelGenaiToolResult(value),
 } satisfies Readonly<Record<string, PartHandler>>;
 
+const DEFAULT_MESSAGE_TYPE = "answer";
+
+/** The sender label for an output turn: its `type` when that names who produced
+ * the turn (a hand-off, an escalation) instead of being the regular `answer`.
+ * Only a declared role qualifies — where `type` is the role vocabulary
+ * (`human`/`ai`), it resolves the role instead. */
+function senderNameFromType(
+  message: Record<string, unknown>,
+): string | undefined {
+  if (!optionalString(message.role ?? message.author)) return undefined;
+  const type = optionalString(message.type);
+  return type === DEFAULT_MESSAGE_TYPE ? undefined : type;
+}
+
 /** GenAI choice events: `{index?, message, finish_reason?}`. */
 function unwrapOtelGenaiChoiceEvent(
   value: Record<string, unknown>,
@@ -86,8 +100,12 @@ function unwrapOtelGenaiChoiceEvent(
   const message = ctx.normalizeMessage(nestedMessage, fallbackRole);
   if (!message) return dropped;
 
+  // Only output turns are labeled by type; input turns keep their role label.
+  const senderName =
+    message.senderName ??
+    (ctx.source === "output" ? senderNameFromType(nestedMessage) : undefined);
   const finishReason = ctx.normalizeFinishReason(value) ?? message.finishReason;
-  return claimed(compact({ ...message, finishReason }));
+  return claimed(compact({ ...message, senderName, finishReason }));
 }
 
 /**

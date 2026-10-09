@@ -128,7 +128,9 @@ core never changes. The pipeline:
    response), unrecognized declared roles (multi-agent frameworks putting the
    agent name in the role field) → the contextual fallback role with the raw
    string preserved as `senderName`. `senderName` otherwise carries an
-   explicit participant `name` (OpenAI/LangChain).
+   explicit participant `name` (OpenAI/LangChain) or an output message's
+   non-default `type` from a choice-event envelope (e.g. an agent hand-off
+   turn).
 4. **Part normalization.** Per message: content arrays/parts run through the
    part parser; string content splits into interleaved text and file parts
    around embedded media tokens; JSON-string arrays of tool shapes parse into

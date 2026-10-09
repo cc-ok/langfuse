@@ -146,9 +146,11 @@ export type NormalizedMessage = {
   role: NormalizedMessageRole;
   /**
    * Sender identity beyond the canonical role: an explicit participant name
-   * (OpenAI/LangChain `name`, e.g. `alice` or `example_user`) or the raw
+   * (OpenAI/LangChain `name`, e.g. `alice` or `example_user`), the raw
    * declared role when it is not a recognized role (e.g. multi-agent frameworks
-   * putting the agent name in the role field)
+   * putting the agent name in the role field), or an output message's
+   * non-default `type` from a choice-event envelope (e.g. an agent hand-off
+   * turn; `answer` is the regular assistant turn)
    */
   senderName?: string;
   parts: NormalizedMessagePart[];

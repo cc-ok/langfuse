@@ -54,6 +54,36 @@ ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/ca
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=cc CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=cc
 RUN apk add --no-cache gcc musl-dev curl patch
 
+# ---- Cargo: CN sparse mirror + no HTTP/2 multiplexing ----
+# crates.io serves its index/static endpoints through Fastly, which on CN
+# networks stalls instead of failing: we have seen a single `cargo metadata`
+# burn 20+ minutes on 7s of CPU with the sockets stuck in CLOSE_WAIT while the
+# VM sat idle. Route cargo through the rsproxy.cn sparse mirror (same idea as
+# the npm/apk/prisma/goproxy mirrors used elsewhere in this file) and force
+# HTTP/1.1 so a stalled connection fails fast and is retried.
+# `packages/native/.cargo/config.toml`, written by prepare-clickhouse-rs.sh,
+# only holds the `[patch.crates-io] clickhouse = { path = ... }` overlay for
+# the native encoder. Cargo merges it with this $CARGO_HOME config, and the
+# patch still applies on top of the replaced source (verified).
+RUN printf '%s\n' \
+    '[source.crates-io]' \
+    'replace-with = "rsproxy-sparse"' \
+    '' \
+    '[source.rsproxy-sparse]' \
+    'registry = "sparse+https://rsproxy.cn/index/"' \
+    > "$CARGO_HOME/config.toml"
+ENV CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_NET_RETRY=10
+
+# prepare-clickhouse-rs.sh fetches the pinned clickhouse crate tarball itself
+# (outside of cargo), so it needs the mirror too. The crates.io API and
+# rsproxy.cn expose the same /api/v1/crates/<name>/<version>/download layout;
+# the script keeps its own sha256 check. Override with
+# `--build-arg LANGFUSE_CRATE_API_BASE=https://crates.io` to go direct, or pass
+# an empty value to fall back to the script default.
+ARG LANGFUSE_CRATE_API_BASE=https://rsproxy.cn
+ENV LANGFUSE_CRATE_API_BASE=$LANGFUSE_CRATE_API_BASE
+
 # First install the dependencies (as they change less often)
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=pruner /app/out/pnpm-workspace.yaml ./pnpm-workspace.yaml
@@ -78,7 +108,15 @@ ARG NEXT_PUBLIC_POSTHOG_HOST
 # Copy source code of isolated subworkspace
 COPY --from=pruner /app/out/full/ .
 
-RUN turbo run build --filter=worker...
+# Cargo cache mounts: without these, /usr/local/cargo/registry and
+# packages/native/target live only in this RUN's writable layer, so every build
+# that invalidates the `COPY --from=pruner /app/out/full/ .` layer above
+# re-downloads all ~173 crates and recompiles the whole Rust tree from scratch.
+# The napi artifact (langfuse-native.<target>.node) is written to the package
+# root, not into target/, so caching target/ does not hide build outputs.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/app/packages/native/target,sharing=locked \
+    turbo run build --filter=worker...
 
 FROM --platform=${TARGETPLATFORM:-linux/amd64} builder AS prod-deps
 

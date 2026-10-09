@@ -5,6 +5,11 @@ set -eu
 
 crate_version=0.15.2
 crate_sha256=7654154fde4d97ec1321bfe4c3965570be6fcd09e091da8afc3166ab5ee27be2
+# Registry base used to fetch the pinned crate tarball. Mirrors that follow the
+# crates.io API layout (rsproxy.cn, etc.) can be substituted here because the
+# crates.io CDN stalls on some CN networks instead of failing; `worker/Dockerfile`
+# points this at https://rsproxy.cn. The sha256 check below still guards integrity.
+crate_api_base="${LANGFUSE_CRATE_API_BASE:-https://crates.io}"
 package_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 source_root="${package_dir}/target/.clickhouse-source"
 source_dir="${source_root}/clickhouse-${crate_version}"
@@ -25,9 +30,13 @@ patch_sha256="$(checksum "$patch_file")"
 
 if [ ! -f "$marker" ] || [ "$(cat "$marker")" != "$patch_sha256" ]; then
   mkdir -p "$source_root"
+  # --connect-timeout/--max-time are deliberate: without them a black-holed
+  # connection waits forever, which is exactly how this step has hung before.
+  # Timing out is retried thanks to --retry-all-errors.
   curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors --silent --show-error \
+    --connect-timeout 20 --max-time 120 \
     --user-agent 'langfuse-native-build/0.1 (https://github.com/langfuse/langfuse)' \
-    "https://crates.io/api/v1/crates/clickhouse/${crate_version}/download" \
+    "${crate_api_base}/api/v1/crates/clickhouse/${crate_version}/download" \
     --output "$archive"
 
   if [ "$(checksum "$archive")" != "$crate_sha256" ]; then

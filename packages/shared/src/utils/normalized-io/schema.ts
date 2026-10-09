@@ -171,9 +171,11 @@ export const normalizedMessageSchema = z.object({
   role: normalizedMessageRoleSchema,
   /**
    * Sender identity beyond the canonical role: an explicit participant name
-   * (OpenAI/LangChain `name`, for example `alice` or `example_user`) or the raw
+   * (OpenAI/LangChain `name`, for example `alice` or `example_user`), the raw
    * declared role when it is not a recognized role, as multi-agent frameworks
-   * do when they put the agent name in the role field.
+   * do when they put the agent name in the role field, or an output message's
+   * non-default `type` from a choice-event envelope (for example an agent
+   * hand-off turn; `answer` is the regular assistant turn).
    */
   senderName: z.string().optional(),
   parts: z.array(normalizedMessagePartSchema),

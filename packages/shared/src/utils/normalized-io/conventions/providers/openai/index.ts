@@ -381,31 +381,58 @@ function normalizeAudioOutput(
 }
 
 /**
- * OpenAI message-sibling fields: `refusal`/`audio`, and Responses reasoning
- * items (content[] is collected via the regular parts path; `summary` is a
- * sibling stream collected either way, and the replayable `encrypted_content`
- * blob becomes its own stream element after the visible parts).
+ * OpenAI message-sibling fields: `refusal`/`audio`, the OpenAI-compatible
+ * `reasoning_content` field, and Responses reasoning items (content[] is
+ * collected via the regular parts path; `summary` is a sibling stream
+ * collected either way, and the replayable `encrypted_content` blob becomes
+ * its own stream element after the visible parts).
  */
 function openAiCollectSiblingParts(
   value: Record<string, unknown>,
   baseParts: readonly NormalizedMessagePart[],
   context: { normalizePartList(values: unknown[]): NormalizedMessagePart[] },
 ): SiblingPartContribution[] {
-  const parts: NormalizedMessagePart[] = [];
+  const contributions: SiblingPartContribution[] = [];
 
-  const refusal = optionalString(value.refusal);
-  if (refusal) parts.push({ type: "text", refusal: true, text: refusal });
-
-  const audioPart = normalizeAudioOutput(asRecord(value.audio));
-  if (audioPart) parts.push(audioPart);
-
-  if (value.type === "reasoning") {
-    parts.push(...openAiReasoningParts(value, baseParts, context));
+  // OpenAI-compatible chat-message sibling used by DeepSeek, Volcengine,
+  // Moonshot, and similar providers.
+  const reasoningContent = value.reasoning_content;
+  const reasoningParts: NormalizedMessagePart[] =
+    typeof reasoningContent === "string" && reasoningContent.length > 0
+      ? [reasoningPart(reasoningContent)]
+      : Array.isArray(reasoningContent)
+        ? context.normalizePartList(reasoningContent)
+        : [];
+  if (reasoningParts.length > 0) {
+    contributions.push({
+      sourceKey: "reasoning_content",
+      slot: "after-content",
+      parts: reasoningParts,
+    });
   }
 
-  return parts.length > 0
-    ? [{ sourceKey: "openai.siblings", slot: "after-tool-calls", parts }]
-    : [];
+  const siblingParts: NormalizedMessagePart[] = [];
+
+  const refusal = optionalString(value.refusal);
+  if (refusal)
+    siblingParts.push({ type: "text", refusal: true, text: refusal });
+
+  const audioPart = normalizeAudioOutput(asRecord(value.audio));
+  if (audioPart) siblingParts.push(audioPart);
+
+  if (value.type === "reasoning") {
+    siblingParts.push(...openAiReasoningParts(value, baseParts, context));
+  }
+
+  if (siblingParts.length > 0) {
+    contributions.push({
+      sourceKey: "openai.siblings",
+      slot: "after-tool-calls",
+      parts: siblingParts,
+    });
+  }
+
+  return contributions;
 }
 
 function openAiReasoningParts(

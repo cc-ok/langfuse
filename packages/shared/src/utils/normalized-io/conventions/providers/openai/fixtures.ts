@@ -4347,3 +4347,62 @@ export const capturedTraceFixtures: NormalizedIOFixture[] = [
     },
   },
 ];
+
+// `reasoning_content` is the OpenAI-compatible chat-message sibling used by
+// DeepSeek, Volcengine, Moonshot, and similar providers.
+export const openAiReasoningContentFixtures: NormalizedIOFixture[] = [
+  {
+    name: "normalizes a string reasoning_content sibling into a reasoning part",
+    spanIO: {
+      input: undefined,
+      output: {
+        content: "Final answer",
+        reasoning_content: "Step by step",
+      },
+      metadata: undefined,
+    },
+    expected: {
+      messages: [
+        {
+          source: "output",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Final answer" },
+            {
+              type: "reasoning",
+              content: { kind: "text", text: "Step by step" },
+            },
+          ],
+        },
+      ],
+      toolDefinitions: [],
+    },
+  },
+  {
+    name: "normalizes an array reasoning_content sibling into reasoning parts",
+    spanIO: {
+      input: undefined,
+      output: {
+        content: "Final answer",
+        reasoning_content: [{ type: "thinking", content: "Step by step" }],
+      },
+      metadata: undefined,
+    },
+    expected: {
+      messages: [
+        {
+          source: "output",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Final answer" },
+            {
+              type: "reasoning",
+              content: { kind: "text", text: "Step by step" },
+            },
+          ],
+        },
+      ],
+      toolDefinitions: [],
+    },
+  },
+];

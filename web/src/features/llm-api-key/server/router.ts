@@ -118,7 +118,7 @@ function assertDecisionModelConnectionInput(input: {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
-        "Decision-model connections only support the TypeSafe, Vercel AI Gateway, and OpenRouter base URLs.",
+        "Decision-model connections only support the built-in TypeSafe upstream base URLs.",
     });
   }
   if (input.extraHeaders && Object.keys(input.extraHeaders).length > 0) {

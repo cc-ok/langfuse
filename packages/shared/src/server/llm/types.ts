@@ -472,7 +472,12 @@ export const googleAIStudioModels = [
   "gemini-1.5-flash-8b",
 ] as const;
 
-export const typeSafeModels = ["jev-1.13.0", "jev-latest"] as const;
+export const typeSafeModels = [
+  // Keep the Jev models first: Test connection defaults to supportedModels[TypeSafe][0]
+  "jev-1.13.0",
+  "jev-latest",
+  "decision-model-preview",
+] as const;
 
 /**
  * Providers that serve Jev through TypeSafe's `/v1/systemone` API. A TypeSafe
@@ -497,6 +502,14 @@ export const TYPESAFE_UPSTREAMS = [
     label: "OpenRouter",
     baseURL: "https://openrouter.ai/api/v1",
     apiKeyLabel: "OpenRouter API key",
+  },
+  {
+    // Self-hosted Zhihai gateway: serves Bailian's decision-model-preview
+    // through a TypeSafe-compatible /v1/systemone.
+    id: "zhihai-ai",
+    label: "Zhihai AI",
+    baseURL: "http://test-tools.zhihaiai.com/v1",
+    apiKeyLabel: "DASHSCOPE API key",
   },
 ] as const;
 

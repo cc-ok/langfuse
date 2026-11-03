@@ -1,13 +1,13 @@
 export const resolveEvalExecutionMetadata = (
   parsedMetadata: unknown,
 ): string | null => {
-  try {
-    if (typeof parsedMetadata !== "object" || parsedMetadata === null)
-      return null;
-    return (parsedMetadata as Record<string, unknown>)[
-      "target_trace_id"
-    ] as string;
-  } catch {
+  if (typeof parsedMetadata !== "object" || parsedMetadata === null)
     return null;
-  }
+
+  const targetTraceId = (parsedMetadata as Record<string, unknown>)
+    .target_trace_id;
+
+  return typeof targetTraceId === "string" && targetTraceId.length > 0
+    ? targetTraceId
+    : null;
 };

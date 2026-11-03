@@ -12,11 +12,7 @@
 
 import { memo, useRef } from "react";
 import { useReadPath } from "@/src/features/events";
-import {
-  type TraceDomain,
-  type ScoreDomain,
-  LangfuseInternalTraceEnvironment,
-} from "@langfuse/shared";
+import { type TraceDomain, type ScoreDomain } from "@langfuse/shared";
 import { type WithStringifiedMetadata } from "@/src/utils/clientSideDomainTypes";
 import { ItemBadge } from "@/src/components/ItemBadge";
 import { ConnectedDetailHeaderActionsMenuController } from "@/src/features/traces/components/DetailHeaderActionsMenuController";
@@ -81,10 +77,7 @@ export const TraceDetailViewHeader = memo(function TraceDetailViewHeader({
     commentCount && !commentDrawerControl.disabled
       ? `${commentActionLabel} (${commentCount})`
       : commentActionLabel;
-  const targetTraceId =
-    trace.environment === LangfuseInternalTraceEnvironment.LLMJudge
-      ? resolveEvalExecutionMetadata(parsedMetadata)
-      : null;
+  const targetTraceId = resolveEvalExecutionMetadata(parsedMetadata);
 
   const preparedDate = buildLocalIsoDatePresentation({
     date: trace.timestamp,

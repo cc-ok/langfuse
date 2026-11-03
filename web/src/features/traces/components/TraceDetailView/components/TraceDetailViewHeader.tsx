@@ -15,11 +15,7 @@ import { prepareTraceAnnotation } from "@/src/features/scores/lib/prepareTraceAn
 import { headerActionClassName } from "@/src/features/traces/components/headerActionClassName";
 import { memo, useRef } from "react";
 import { useReadPath } from "@/src/features/events/hooks/useReadPath";
-import {
-  type TraceDomain,
-  type ScoreDomain,
-  LangfuseInternalTraceEnvironment,
-} from "@langfuse/shared";
+import { type TraceDomain, type ScoreDomain } from "@langfuse/shared";
 import { type WithStringifiedMetadata } from "@/src/utils/clientSideDomainTypes";
 import { EntityTitle } from "@/src/components/EntityTitle";
 import { DetailViewHeaderShell } from "@/src/features/traces/components/DetailViewHeaderShell";
@@ -135,10 +131,7 @@ function LoadedTraceDetailViewHeader({
     commentCount && !commentDrawerControl.disabled
       ? `${commentActionLabel} (${commentCount})`
       : commentActionLabel;
-  const targetTraceId =
-    trace.environment === LangfuseInternalTraceEnvironment.LLMJudge
-      ? resolveEvalExecutionMetadata(parsedMetadata)
-      : null;
+  const targetTraceId = resolveEvalExecutionMetadata(parsedMetadata);
 
   const preparedDate = buildLocalIsoDatePresentation({
     date: trace.timestamp,

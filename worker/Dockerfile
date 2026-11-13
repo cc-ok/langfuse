@@ -34,7 +34,6 @@ FROM --platform=${TARGETPLATFORM:-linux/amd64} base AS build-base
 # (Prisma's engine fetch opens a connection and then transfers nothing).
 RUN npm config set registry https://registry.npmmirror.com && \
     npm install -g turbo@2.11.9 pnpm@12.16.1
-ENV PNPM_REGISTRY=https://registry.npmmirror.com
 ENV PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
 # Pass --build-arg NODE_USE_ENV_PROXY=1 when building behind a proxy.
 ARG NODE_USE_ENV_PROXY
@@ -85,13 +84,23 @@ RUN sed 's#/etc/crypto-policies/back-ends/opensslcnf.config#/usr/share/crypto-po
 
 # dumb-init is not packaged in UBI; install the pinned, checksum-verified
 # static release binary (preserves the semver-covered ENTRYPOINT contract).
+#
+# GitHub releases are unreachable from the CN build hosts (connections hang, and
+# curl without a timeout waits forever), so the binary is fetched through a
+# release proxy first and from github.com second. The sha256 below is the
+# upstream artifact's, so a proxy cannot substitute a different binary; override
+# with `--build-arg DUMB_INIT_RELEASE_BASE=https://github.com/Yelp/dumb-init/releases/download/v1.2.5`.
+ARG DUMB_INIT_RELEASE_BASE=https://ghfast.top/https://github.com/Yelp/dumb-init/releases/download/v1.2.5
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
     amd64) di_arch=x86_64; di_sha256=e874b55f3279ca41415d290c512a7ba9d08f98041b28ae7c2acb19a545f1c4df ;; \
     arm64) di_arch=aarch64; di_sha256=b7d648f97154a99c539b63c55979cd29f005f88430fb383007fe3458340b795e ;; \
     *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /mnt/rootfs/usr/bin/dumb-init "https://github.com/Yelp/dumb-init/releases/download/v1.2.5/dumb-init_1.2.5_${di_arch}"; \
+    for base in "$DUMB_INIT_RELEASE_BASE" "https://github.com/Yelp/dumb-init/releases/download/v1.2.5"; do \
+    curl -fsSL --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    -o /mnt/rootfs/usr/bin/dumb-init "${base}/dumb-init_1.2.5_${di_arch}" && break || rm -f /mnt/rootfs/usr/bin/dumb-init; \
+    done; \
     echo "${di_sha256}  /mnt/rootfs/usr/bin/dumb-init" | sha256sum -c -; \
     chmod 0755 /mnt/rootfs/usr/bin/dumb-init
 
@@ -136,19 +145,25 @@ RUN dnf -y install --setopt=install_weak_deps=0 gcc tar gzip && \
 # like the dumb-init binary above. Only rustc, cargo and the target's std are
 # needed to build; clippy and rustfmt run outside Docker.
 #
-# Dist mirror: static.rust-lang.org serves this ~330 MB tarball at ~70 KB/s from
-# CN networks (it stalls rather than failing, like the registries above), so the
-# download never finishes in a build. Same idea as the npm/prisma/cargo mirrors
-# in this file; the sha256 below still pins exactly what is installed. Override
-# with `--build-arg RUST_DIST_BASE=https://static.rust-lang.org` to go direct.
-ARG RUST_DIST_BASE=https://mirrors.ustc.edu.cn/rust-static
+# Dist mirrors: static.rust-lang.org serves this ~330 MB tarball at ~60-120 KB/s
+# from CN networks, so it effectively never arrives. Mirror speed depends on the
+# network (SJTU is fast from the build host but slow from an office Mac, USTC the
+# reverse), so the list is tried in order and a mirror that stalls below
+# 200 KB/s is dropped for the next one. The sha256 below pins the upstream
+# artifact, so no mirror can substitute a different toolchain. Override with
+# `--build-arg RUST_DIST_MIRRORS="https://static.rust-lang.org"` to go direct.
+ARG RUST_DIST_MIRRORS="https://mirrors.sjtug.sjtu.edu.cn/rust-static https://mirrors.ustc.edu.cn/rust-static https://static.rust-lang.org"
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
     amd64) triple=x86_64-unknown-linux-gnu; toolchain_sha256=aa30409afa67bd1ada244cefd82c7980e6a65bc113bb978e934b2413c75e3900 ;; \
     arm64) triple=aarch64-unknown-linux-gnu; toolchain_sha256=5fbb4282403046d52a4672765c6761a809bf9f33e699b17e6eb7a93ab7770cc3 ;; \
     *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/rust.tar.gz "${RUST_DIST_BASE}/dist/rust-1.98.0-${triple}.tar.gz"; \
+    for base in $RUST_DIST_MIRRORS; do \
+    curl -fsSL --connect-timeout 10 --retry 2 --retry-all-errors \
+    --speed-limit 200000 --speed-time 30 \
+    -o /tmp/rust.tar.gz "${base}/dist/rust-1.98.0-${triple}.tar.gz" && break || rm -f /tmp/rust.tar.gz; \
+    done; \
     echo "${toolchain_sha256}  /tmp/rust.tar.gz" | sha256sum -c -; \
     tar -xzf /tmp/rust.tar.gz -C /tmp; \
     /tmp/rust-1.98.0-${triple}/install.sh --prefix=/usr/local \

@@ -13,6 +13,9 @@
 #   --build-arg MICRO_BASE_IMAGE=registry1.dso.mil/ironbank/redhat/ubi/ubi9-micro:9.8
 ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.8
 ARG MICRO_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-micro:9.8
+# Overridable so a build can point at a registry mirror instead of Docker Hub,
+# e.g. `--build-arg GOLANG_IMAGE=docker.1ms.run/library/golang:1.26`.
+ARG GOLANG_IMAGE=golang:1.26
 
 FROM --platform=${TARGETPLATFORM:-linux/amd64} ${BASE_IMAGE} AS base
 
@@ -34,7 +37,6 @@ FROM --platform=${TARGETPLATFORM:-linux/amd64} base AS build-base
 # (Prisma's engine fetch opens a connection and then transfers nothing).
 RUN npm config set registry https://registry.npmmirror.com && \
     npm install -g turbo@2.11.9 pnpm@12.16.1
-ENV PNPM_REGISTRY=https://registry.npmmirror.com
 ENV PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
 # Pass --build-arg NODE_USE_ENV_PROXY=1 when building behind a proxy.
 ARG NODE_USE_ENV_PROXY
@@ -85,13 +87,23 @@ RUN sed 's#/etc/crypto-policies/back-ends/opensslcnf.config#/usr/share/crypto-po
 
 # dumb-init is not packaged in UBI; install the pinned, checksum-verified
 # static release binary (preserves the semver-covered ENTRYPOINT contract).
+#
+# GitHub releases are unreachable from the CN build hosts (connections hang, and
+# curl without a timeout waits forever), so the binary is fetched through a
+# release proxy first and from github.com second. The sha256 below is the
+# upstream artifact's, so a proxy cannot substitute a different binary; override
+# with `--build-arg DUMB_INIT_RELEASE_BASE=https://github.com/Yelp/dumb-init/releases/download/v1.2.5`.
+ARG DUMB_INIT_RELEASE_BASE=https://ghfast.top/https://github.com/Yelp/dumb-init/releases/download/v1.2.5
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
     amd64) di_arch=x86_64; di_sha256=e874b55f3279ca41415d290c512a7ba9d08f98041b28ae7c2acb19a545f1c4df ;; \
     arm64) di_arch=aarch64; di_sha256=b7d648f97154a99c539b63c55979cd29f005f88430fb383007fe3458340b795e ;; \
     *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /mnt/rootfs/usr/bin/dumb-init "https://github.com/Yelp/dumb-init/releases/download/v1.2.5/dumb-init_1.2.5_${di_arch}"; \
+    for base in "$DUMB_INIT_RELEASE_BASE" "https://github.com/Yelp/dumb-init/releases/download/v1.2.5"; do \
+    curl -fsSL --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors \
+    -o /mnt/rootfs/usr/bin/dumb-init "${base}/dumb-init_1.2.5_${di_arch}" && break || rm -f /mnt/rootfs/usr/bin/dumb-init; \
+    done; \
     echo "${di_sha256}  /mnt/rootfs/usr/bin/dumb-init" | sha256sum -c -; \
     chmod 0755 /mnt/rootfs/usr/bin/dumb-init
 
@@ -129,7 +141,7 @@ RUN mkdir -p /opt/dd/node_modules && \
     fi && \
     prune-node-modules /opt/dd/node_modules
 
-FROM --platform=${BUILDPLATFORM} golang:1.26 AS migrate-builder
+FROM --platform=${BUILDPLATFORM} ${GOLANG_IMAGE} AS migrate-builder
 ARG TARGETOS
 ARG TARGETARCH
 ENV CGO_ENABLED=0 \

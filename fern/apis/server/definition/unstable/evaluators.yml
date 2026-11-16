@@ -1,0 +1,136 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fern-api/fern/main/fern.schema.json
+imports:
+  errors: ./errors.yml
+
+service:
+  auth: true
+  base-path: /api/public/unstable/evaluators
+  endpoints:
+    run:
+      docs: |
+        Unstable: the endpoint shape may change without notice.
+
+        Run the latest version of a code evaluator against an ad-hoc payload and return its scores synchronously.
+
+        Unlike evaluation rules, this endpoint evaluates nothing on its own: it does not read traces, does not persist scores, does not create job executions and does not write an execution trace. It exists so callers that already hold data which is not ingested yet (for example a labelling step that must finish before ingestion) can reuse evaluator logic configured in Langfuse.
+
+        The payload mirrors what a scheduled evaluation sees for an observation, so `ctx` looks the same on both paths: `input`, `output`, `metadata` and `toolCalls` map to `ctx.observation`, and `experiment` maps to `ctx.experiment`. Callers should pass already-stringified `input` and `output` values (the same bytes they ingest over OTLP).
+
+        Only `CODE` evaluators written in `TYPESCRIPT` are supported, and paused evaluators are rejected.
+
+        Runs are capped per instance (`LANGFUSE_CODE_EVAL_RUN_CONCURRENCY`, default 8); requests beyond the cap receive `503` with a `Retry-After` header. With the in-process dispatcher user code executes synchronously on the web event loop, so runs are serialized and a burst queues rather than failing fast.
+      method: POST
+      path: /{evaluatorId}/run
+      path-parameters:
+        evaluatorId:
+          type: string
+          docs: Stable evaluator identifier returned by the evaluator endpoints.
+      request: RunEvaluatorRequest
+      response: RunEvaluatorResult
+      errors:
+        - errors.BadRequestError
+        - errors.UnauthorizedError
+        - errors.AccessDeniedError
+        - errors.NotFoundError
+        - errors.ConflictError
+        - errors.PayloadTooLargeError
+        - errors.TooManyRequestsError
+        - errors.ServiceUnavailableError
+        - errors.GatewayTimeoutError
+        - errors.InternalServerError
+
+types:
+  RunEvaluatorExperiment:
+    docs: Experiment item context exposed to the evaluator as `ctx.experiment`.
+    properties:
+      itemExpectedOutput:
+        type: optional<unknown>
+        docs: Expected output of the experiment item.
+      itemMetadata:
+        type: optional<unknown>
+        docs: Metadata of the experiment item.
+
+  RunEvaluatorPayload:
+    docs: Ad-hoc observation payload handed to the evaluator. Unset fields arrive as `null`.
+    properties:
+      input:
+        type: optional<unknown>
+        docs: Observation input. Pass the stringified value that is ingested over OTLP.
+      output:
+        type: optional<unknown>
+        docs: Observation output. Pass the stringified value that is ingested over OTLP.
+      metadata:
+        type: optional<unknown>
+        docs: Observation metadata object.
+      toolCalls:
+        type: optional<list<unknown>>
+        docs: Tool calls in Langfuse's `{ id, name, arguments, type, index }` shape.
+      experiment:
+        type: optional<RunEvaluatorExperiment>
+
+  RunEvaluatorRequest:
+    properties:
+      payload:
+        type: RunEvaluatorPayload
+      timeoutMs:
+        type: optional<integer>
+        docs: |
+          Wall-clock budget for the evaluator script. Defaults to 1000ms, clamped to
+          the instance's local code-eval limit. Exceeding it returns `504`.
+    examples:
+      - value:
+          payload:
+            input: '{"question":"我的订单到哪了"}'
+            output: '{"answer":"已发出，预计明天送达"}'
+            metadata:
+              level: turn
+          timeoutMs: 1000
+
+  RunEvaluatorScoreDataType:
+    docs: Score data type produced by the evaluator.
+    enum:
+      - NUMERIC
+      - CATEGORICAL
+      - BOOLEAN
+      - TEXT
+
+  RunEvaluatorScore:
+    docs: One score returned by the evaluator. Nothing is persisted for ad-hoc runs.
+    properties:
+      name:
+        type: string
+        docs: Score name as returned by the evaluator.
+      value:
+        type: unknown
+        docs: |
+          Normalized value. `BOOLEAN` scores are returned as `1`/`0`.
+      dataType:
+        type: optional<RunEvaluatorScoreDataType>
+        docs: Data type of the score. Absent when the evaluator omits it.
+      comment:
+        type: optional<nullable<string>>
+        docs: Optional human-readable explanation.
+      metadata:
+        type: optional<map<string, unknown>>
+        docs: Optional structured metadata attached to the score.
+
+  RunEvaluatorResult:
+    properties:
+      evaluatorId:
+        type: string
+        docs: Evaluator that was run.
+      evaluatorName:
+        type: string
+        docs: Human-readable evaluator name.
+      versionId:
+        type: string
+        docs: Version that was executed. Rules always run the latest version, and so does this endpoint.
+      version:
+        type: integer
+        docs: Version number that was executed.
+      scores:
+        type: list<RunEvaluatorScore>
+        docs: Scores returned by the evaluator. At least one is required by the evaluator contract.
+      durationMs:
+        type: integer
+        docs: Server-side execution time, including dispatcher overhead.

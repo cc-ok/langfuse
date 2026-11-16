@@ -235,3 +235,76 @@ export const DeleteEvaluatorResponse = z.object({ id: z.string() }).strict();
 export type EvaluatorDefinitionType = z.infer<typeof _EvaluatorDefinition>;
 export type CreateEvaluatorBodyType = z.infer<typeof CreateEvaluatorBody>;
 export type UpdateEvaluatorBodyType = z.infer<typeof UpdateEvaluatorBody>;
+
+/**
+ * Ad-hoc execution of one code evaluator (`POST /api/public/unstable/evaluators/{id}/run`).
+ *
+ * The payload mirrors what a scheduled evaluation sees for an observation, so an
+ * evaluator behaves identically whether it runs from an evaluation rule or from
+ * this endpoint. Callers are expected to pass already-stringified `input`/
+ * `output` values (the same bytes they ingest over OTLP), which keeps the JSON
+ * parsing branches inside evaluator code on the same path.
+ */
+export const RUN_EVALUATOR_PAYLOAD_MAX_BYTES = 256 * 1024;
+export const RUN_EVALUATOR_TIMEOUT_MIN_MS = 50;
+export const RUN_EVALUATOR_TIMEOUT_MAX_MS = 10_000;
+
+const RunEvaluatorExperiment = z
+  .object({
+    itemExpectedOutput: z.unknown().optional(),
+    itemMetadata: z.unknown().optional(),
+  })
+  .strict();
+
+const RunEvaluatorPayload = z
+  .object({
+    input: z.unknown().optional(),
+    output: z.unknown().optional(),
+    metadata: z.unknown().optional(),
+    toolCalls: z.array(z.unknown()).optional(),
+    experiment: RunEvaluatorExperiment.optional(),
+  })
+  .strict();
+
+export const RunEvaluatorBody = z
+  .object({
+    payload: RunEvaluatorPayload,
+    timeoutMs: z
+      .number()
+      .int()
+      .min(RUN_EVALUATOR_TIMEOUT_MIN_MS)
+      .max(RUN_EVALUATOR_TIMEOUT_MAX_MS)
+      .optional(),
+  })
+  .strict();
+
+const RunEvaluatorScoreDataType = z.enum([
+  "NUMERIC",
+  "CATEGORICAL",
+  "BOOLEAN",
+  "TEXT",
+]);
+
+const RunEvaluatorScore = z
+  .object({
+    name: z.string(),
+    value: z.union([z.number(), z.string()]),
+    dataType: RunEvaluatorScoreDataType.optional(),
+    comment: z.string().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
+export const RunEvaluatorResponse = z
+  .object({
+    evaluatorId: z.string(),
+    evaluatorName: z.string(),
+    versionId: z.string(),
+    version: z.number().int(),
+    scores: z.array(RunEvaluatorScore),
+    durationMs: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type RunEvaluatorBodyType = z.infer<typeof RunEvaluatorBody>;
+export type RunEvaluatorResponseType = z.infer<typeof RunEvaluatorResponse>;

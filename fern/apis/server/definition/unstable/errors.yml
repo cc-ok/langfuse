@@ -73,9 +73,21 @@ errors:
     docs: The request conflicts with existing state.
     status-code: 409
     type: PublicApiError
+  PayloadTooLargeError:
+    docs: The request payload exceeds the size allowed for this endpoint.
+    status-code: 422
+    type: PublicApiError
   TooManyRequestsError:
     docs: The project is rate limited. Retry after the interval described in the response headers and error details.
     status-code: 429
+    type: PublicApiError
+  ServiceUnavailableError:
+    docs: The instance is temporarily unable to serve the request. Retry after the interval in the `Retry-After` header.
+    status-code: 503
+    type: PublicApiError
+  GatewayTimeoutError:
+    docs: The upstream execution exceeded its time budget.
+    status-code: 504
     type: PublicApiError
   InternalServerError:
     docs: An unexpected server-side error occurred.

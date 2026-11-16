@@ -7660,6 +7660,125 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/unstableCancelEvaluationJobsRequest'
+  /api/public/unstable/evaluators/{evaluatorId}/run:
+    post:
+      description: >-
+        Unstable: the endpoint shape may change without notice.
+
+
+        Run the latest version of a code evaluator against an ad-hoc payload and
+        return its scores synchronously.
+
+
+        Unlike evaluation rules, this endpoint evaluates nothing on its own: it
+        does not read traces, does not persist scores, does not create job
+        executions and does not write an execution trace. It exists so callers
+        that already hold data which is not ingested yet (for example a
+        labelling step that must finish before ingestion) can reuse evaluator
+        logic configured in Langfuse.
+
+
+        The payload mirrors what a scheduled evaluation sees for an observation,
+        so `ctx` looks the same on both paths: `input`, `output`, `metadata` and
+        `toolCalls` map to `ctx.observation`, and `experiment` maps to
+        `ctx.experiment`. Callers should pass already-stringified `input` and
+        `output` values (the same bytes they ingest over OTLP).
+
+
+        Only `CODE` evaluators written in `TYPESCRIPT` are supported, and paused
+        evaluators are rejected.
+
+
+        Runs are capped per instance (`LANGFUSE_CODE_EVAL_RUN_CONCURRENCY`,
+        default 8); requests beyond the cap receive `503` with a `Retry-After`
+        header. With the in-process dispatcher user code executes synchronously
+        on the web event loop, so runs are serialized and a burst queues rather
+        than failing fast.
+      operationId: unstable_evaluators_run
+      tags:
+        - UnstableEvaluators
+      parameters:
+        - name: evaluatorId
+          in: path
+          description: Stable evaluator identifier returned by the evaluator endpoints.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstableRunEvaluatorResult'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '403':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '405':
+          description: ''
+          content:
+            application/json:
+              schema: {}
+        '409':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+        '422':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+        '429':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+        '503':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+        '504':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/unstablePublicApiError'
+      security: *ref_0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/unstableRunEvaluatorRequest'
   /api/public/unstable/topic-facets:
     get:
       description: |-
@@ -15892,6 +16011,135 @@ components:
       required:
         - experimentId
         - cancelled
+    unstableRunEvaluatorExperiment:
+      title: unstableRunEvaluatorExperiment
+      type: object
+      description: Experiment item context exposed to the evaluator as `ctx.experiment`.
+      properties:
+        itemExpectedOutput:
+          nullable: true
+          description: Expected output of the experiment item.
+        itemMetadata:
+          nullable: true
+          description: Metadata of the experiment item.
+    unstableRunEvaluatorPayload:
+      title: unstableRunEvaluatorPayload
+      type: object
+      description: >-
+        Ad-hoc observation payload handed to the evaluator. Unset fields arrive
+        as `null`.
+      properties:
+        input:
+          nullable: true
+          description: >-
+            Observation input. Pass the stringified value that is ingested over
+            OTLP.
+        output:
+          nullable: true
+          description: >-
+            Observation output. Pass the stringified value that is ingested over
+            OTLP.
+        metadata:
+          nullable: true
+          description: Observation metadata object.
+        toolCalls:
+          type: array
+          items: {}
+          nullable: true
+          description: >-
+            Tool calls in Langfuse's `{ id, name, arguments, type, index }`
+            shape.
+        experiment:
+          $ref: '#/components/schemas/unstableRunEvaluatorExperiment'
+          nullable: true
+    unstableRunEvaluatorRequest:
+      title: unstableRunEvaluatorRequest
+      type: object
+      properties:
+        payload:
+          $ref: '#/components/schemas/unstableRunEvaluatorPayload'
+        timeoutMs:
+          type: integer
+          nullable: true
+          description: >-
+            Wall-clock budget for the evaluator script. Defaults to 1000ms,
+            clamped to
+
+            the instance's local code-eval limit. Exceeding it returns `504`.
+      required:
+        - payload
+    unstableRunEvaluatorScoreDataType:
+      title: unstableRunEvaluatorScoreDataType
+      type: string
+      enum:
+        - NUMERIC
+        - CATEGORICAL
+        - BOOLEAN
+        - TEXT
+      description: Score data type produced by the evaluator.
+    unstableRunEvaluatorScore:
+      title: unstableRunEvaluatorScore
+      type: object
+      description: >-
+        One score returned by the evaluator. Nothing is persisted for ad-hoc
+        runs.
+      properties:
+        name:
+          type: string
+          description: Score name as returned by the evaluator.
+        value:
+          description: Normalized value. `BOOLEAN` scores are returned as `1`/`0`.
+        dataType:
+          $ref: '#/components/schemas/unstableRunEvaluatorScoreDataType'
+          nullable: true
+          description: Data type of the score. Absent when the evaluator omits it.
+        comment:
+          type: string
+          nullable: true
+          description: Optional human-readable explanation.
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Optional structured metadata attached to the score.
+      required:
+        - name
+        - value
+    unstableRunEvaluatorResult:
+      title: unstableRunEvaluatorResult
+      type: object
+      properties:
+        evaluatorId:
+          type: string
+          description: Evaluator that was run.
+        evaluatorName:
+          type: string
+          description: Human-readable evaluator name.
+        versionId:
+          type: string
+          description: >-
+            Version that was executed. Rules always run the latest version, and
+            so does this endpoint.
+        version:
+          type: integer
+          description: Version number that was executed.
+        scores:
+          type: array
+          items:
+            $ref: '#/components/schemas/unstableRunEvaluatorScore'
+          description: >-
+            Scores returned by the evaluator. At least one is required by the
+            evaluator contract.
+        durationMs:
+          type: integer
+          description: Server-side execution time, including dispatcher overhead.
+      required:
+        - evaluatorId
+        - evaluatorName
+        - versionId
+        - version
+        - scores
+        - durationMs
     unstableTopicResultsOrderBy:
       title: unstableTopicResultsOrderBy
       type: string

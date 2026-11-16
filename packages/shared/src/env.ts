@@ -329,6 +329,16 @@ const EnvSchema = z.object({
     .int()
     .positive()
     .default(2_000),
+  // Concurrency gate for `POST /api/public/unstable/evaluators/{id}/run`.
+  // Only bites with async dispatchers (AWS Lambda / external HTTP): the
+  // in-process dispatcher blocks the event loop, which serializes runs anyway.
+  // Keep it at or above the expected number of concurrent callers
+  // (test-tools uses 8 upload workers).
+  LANGFUSE_CODE_EVAL_RUN_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(8),
   LANGFUSE_TRACE_UPSERT_QUEUE_SHARD_COUNT: z.coerce
     .number()
     .positive()

@@ -7689,11 +7689,10 @@ paths:
         evaluators are rejected.
 
 
-        Runs are capped per instance (`LANGFUSE_CODE_EVAL_RUN_CONCURRENCY`,
-        default 8); requests beyond the cap receive `503` with a `Retry-After`
-        header. With the in-process dispatcher user code executes synchronously
-        on the web event loop, so runs are serialized and a burst queues rather
-        than failing fast.
+        Runs execute on worker threads in a bounded pool
+        (`LANGFUSE_CODE_EVAL_RUN_CONCURRENCY`, default 64), so a slow script
+        cannot stall the web process. Requests beyond the pool size receive
+        `503` with a `Retry-After` header.
       operationId: unstable_evaluators_run
       tags:
         - UnstableEvaluators

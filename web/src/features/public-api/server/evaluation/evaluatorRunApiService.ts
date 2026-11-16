@@ -12,7 +12,6 @@ import { prisma } from "@langfuse/shared/src/db";
 import { env } from "@langfuse/shared/src/env";
 import {
   createW3CTraceId,
-  LocalCodeEvalDispatcher,
   resolveConfiguredCodeEvalDispatcher,
   runCodeBasedEvaluationDispatch,
   type CodeEvalDispatcher,
@@ -26,17 +25,16 @@ import {
   type RunEvaluatorBodyType,
   type RunEvaluatorResponseType,
 } from "@/src/features/public-api/types/evaluation/evaluators";
+import { getWorkerCodeEvalDispatcher } from "./codeEvalWorkerDispatcher";
 
 const DEFAULT_RUN_TIMEOUT_MS = 1_000;
 
 /**
- * Process-local concurrency gate for genuinely concurrent dispatches.
+ * Process-local concurrency gate; also the worker-pool ceiling.
  *
- * With `insecure-local` user code runs synchronously in `vm.runInContext`, so
- * the event loop serializes runs on its own: a burst queues behind the running
- * script and never reaches this limit (nothing else can start while the loop is
- * blocked). The gate only bites with async dispatchers (AWS Lambda / external
- * HTTP), where many runs are genuinely in flight at once.
+ * Runs execute off the web event loop (worker thread, or Lambda/external HTTP),
+ * so this is what keeps a fan-out from queueing up: requests beyond it get a
+ * retryable 503.
  */
 let inFlightRuns = 0;
 
@@ -208,8 +206,9 @@ function assertPayloadSize(payload: RunEvaluatorBodyType["payload"]) {
 }
 
 /**
- * The local dispatcher fixes its timeout at construction time, so a per-request
- * budget needs its own instance. Remote dispatchers carry their own limits.
+ * Remote dispatchers carry their own limits. The local one fixes its timeout at
+ * construction time, so a per-request budget gets its own dispatcher, which runs
+ * the script on a worker thread to keep the web event loop free.
  */
 function resolveRunDispatcher(requested?: number): CodeEvalDispatcher {
   const dispatcher = resolveConfiguredCodeEvalDispatcher();
@@ -222,8 +221,8 @@ function resolveRunDispatcher(requested?: number): CodeEvalDispatcher {
     return dispatcher;
   }
 
-  // An explicit budget may not stretch the event-loop stall past the
-  // operator's instance-wide ceiling.
+  // An explicit budget may not stretch the execution past the operator's
+  // instance-wide ceiling.
   const ceiling = Math.min(
     RUN_EVALUATOR_TIMEOUT_MAX_MS,
     env.LANGFUSE_CODE_EVAL_LOCAL_TIMEOUT_MS,
@@ -232,7 +231,7 @@ function resolveRunDispatcher(requested?: number): CodeEvalDispatcher {
     Math.max(requested ?? DEFAULT_RUN_TIMEOUT_MS, RUN_EVALUATOR_TIMEOUT_MIN_MS),
     ceiling,
   );
-  return new LocalCodeEvalDispatcher({ timeoutMs });
+  return getWorkerCodeEvalDispatcher(timeoutMs);
 }
 
 /**

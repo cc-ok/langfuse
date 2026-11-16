@@ -41,7 +41,16 @@ async function createPythonEvaluator(projectId: string) {
   return evaluator.id;
 }
 
-/** Evaluator that always returns one numeric score; used where the payload does not matter. */
+/** Busy-waits long enough to observe a concurrent request. */
+const SLOW_SOURCE = `
+  function evaluate() {
+    const end = Date.now() + 600;
+    while (Date.now() < end) {}
+    return { scores: [{ name: "slow", value: 1, dataType: "NUMERIC" }] };
+  }
+`;
+
+/** Evaluator that always returns one numeric value; used where the payload does not matter. */
 const SCORED_SOURCE = `
   function evaluate() {
     return { scores: [{ name: "x", value: 1, dataType: "NUMERIC" }] };
@@ -59,9 +68,9 @@ const SCORED_SOURCE = `
  * Requires a server whose code-eval dispatcher is configured (dev/test default
  * to `insecure-local`). Otherwise every run answers 503.
  *
- * The concurrency gate is not covered here: with the in-process dispatcher the
- * event loop serializes runs, so a burst queues instead of tripping the limit.
- * It only applies to async dispatchers (Lambda / external HTTP).
+ * Runs execute on worker threads, so a slow script must not stall other requests
+ * (see the last test); the concurrency gate is covered by unit tests instead, as
+ * its default is an operator setting.
  */
 describe("unstable code evaluator run public API", () => {
   const orgIds: string[] = [];
@@ -331,6 +340,26 @@ describe("unstable code evaluator run public API", () => {
     );
 
     expect(status).toBe(422);
+  });
+
+  it("does not block other requests while a script runs", async () => {
+    const { auth, evaluator } = await createEvaluator(SLOW_SOURCE);
+
+    const run = makeAPICall(
+      "POST",
+      RUN_URL(evaluator.id),
+      { payload: { output: "{}" }, timeoutMs: 5_000 },
+      auth,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const startedAt = Date.now();
+    await makeAPICall("GET", "/api/public/health");
+    const healthMs = Date.now() - startedAt;
+
+    // In-process execution would stall this probe for the whole busy loop.
+    expect(healthMs).toBeLessThan(400);
+    await expect(run).resolves.toMatchObject({ status: 200 });
   });
 
   it("requires authentication", async () => {

@@ -1,9 +1,10 @@
 import { Worker } from "node:worker_threads";
 import { env } from "@langfuse/shared/src/env";
 import {
+  assertDispatchResultWithinByteLimit,
   CodeEvalDispatcherError,
   CodeEvalDispatcherErrorCodes,
-  parseDispatchResult,
+  parseRunDispatchResult,
   withCodeEvalDocs,
   type CodeEvalDispatcher,
   type CodeEvalPayload,
@@ -310,7 +311,14 @@ export function getWorkerCodeEvalDispatcher(
         timeoutMs,
       });
 
-      if (reply.ok) return parseDispatchResult(reply.value);
+      if (reply.ok) {
+        // Runs may return long TEXT values (see CODE_EVAL_RUN_TEXT_MAX_LENGTH);
+        // the shared result cap still applies before anything leaves the process.
+        assertDispatchResultWithinByteLimit(
+          Buffer.byteLength(JSON.stringify(reply.value)),
+        );
+        return parseRunDispatchResult(reply.value);
+      }
       if (reply.phase === "timeout") {
         throw new CodeEvalDispatcherError(reply.message, {
           code: CodeEvalDispatcherErrorCodes.TIMEOUT,

@@ -8,6 +8,15 @@ export { CODE_EVAL_SOURCE_MAX_BYTES } from "../../features/evals/codeEvalConstan
 import { CODE_EVAL_SOURCE_MAX_BYTES } from "../../features/evals/codeEvalConstants";
 export const CODE_EVAL_DISPATCH_PAYLOAD_MAX_BYTES = 5.5 * 1024 * 1024;
 export const CODE_EVAL_DISPATCH_RESULT_MAX_BYTES = 256 * 1024;
+/**
+ * TEXT length accepted by the ad-hoc run endpoint.
+ *
+ * Scheduled evaluations keep the 500-character score cap (see
+ * {@link buildCodeEvalScoreSchema}): ingestion cannot store more. A run writes
+ * no score, so its output is free to carry longer text for callers that reuse
+ * it outside of score ingestion (e.g. as prompt input on a later push).
+ */
+export const CODE_EVAL_RUN_TEXT_MAX_LENGTH = 64 * 1024;
 export const CODE_EVAL_DOCS_URL =
   "https://langfuse.com/docs/evaluation/evaluation-methods/code-evaluators";
 
@@ -76,60 +85,73 @@ const codeEvalScoreBase = {
   metadata: z.record(z.string(), z.unknown()).optional(),
 };
 
-const CodeEvalScoreSchema = z.union([
-  z.object({
-    ...codeEvalScoreBase,
-    value: z.number(),
-    dataType: z.literal(ScoreDataTypeEnum.NUMERIC),
-  }),
-  z.object({
-    ...codeEvalScoreBase,
-    value: z.string(),
-    dataType: z.literal(ScoreDataTypeEnum.CATEGORICAL),
-  }),
-  z.object({
-    ...codeEvalScoreBase,
-    // BOOLEAN explicitly signals intent, so accept the values users most
-    // commonly return — native booleans, 0/1, and string forms ("true"/
-    // "false"/"1"/"0", case-insensitive) — and normalize to the 0/1 wire
-    // encoding the score ingestion expects.
-    value: z
-      .union([z.literal(0), z.literal(1), z.boolean(), z.string()])
-      .transform((v, ctx): 0 | 1 => {
-        if (v === 0 || v === 1) return v;
-        if (typeof v === "boolean") return v ? 1 : 0;
+/**
+ * `textMaxLength` mirrors the public ingestion `ScoreBody` cap on TEXT values by
+ * default, so an oversized TEXT fails fast as a non-retryable `INVALID_RESULT`
+ * at the dispatcher instead of being silently dropped later by the ingestion
+ * consumer after the `JobExecution` is already marked COMPLETED. Ad-hoc runs
+ * pass a larger cap because no score is written.
+ */
+function buildCodeEvalScoreSchema(textMaxLength: number) {
+  return z.union([
+    z.object({
+      ...codeEvalScoreBase,
+      value: z.number(),
+      dataType: z.literal(ScoreDataTypeEnum.NUMERIC),
+    }),
+    z.object({
+      ...codeEvalScoreBase,
+      value: z.string(),
+      dataType: z.literal(ScoreDataTypeEnum.CATEGORICAL),
+    }),
+    z.object({
+      ...codeEvalScoreBase,
+      // BOOLEAN explicitly signals intent, so accept the values users most
+      // commonly return — native booleans, 0/1, and string forms ("true"/
+      // "false"/"1"/"0", case-insensitive) — and normalize to the 0/1 wire
+      // encoding the score ingestion expects.
+      value: z
+        .union([z.literal(0), z.literal(1), z.boolean(), z.string()])
+        .transform((v, ctx): 0 | 1 => {
+          if (v === 0 || v === 1) return v;
+          if (typeof v === "boolean") return v ? 1 : 0;
 
-        const normalized = v.trim().toLowerCase();
-        if (normalized === "true" || normalized === "1") return 1;
-        if (normalized === "false" || normalized === "0") return 0;
+          const normalized = v.trim().toLowerCase();
+          if (normalized === "true" || normalized === "1") return 1;
+          if (normalized === "false" || normalized === "0") return 0;
 
-        ctx.addIssue({
-          code: "custom",
-          message: `Invalid boolean value: ${JSON.stringify(v)}`,
-        });
-        return z.NEVER;
-      }),
-    dataType: z.literal(ScoreDataTypeEnum.BOOLEAN),
-  }),
-  z.object({
-    ...codeEvalScoreBase,
-    // Mirror the public ingestion `ScoreBody` cap on TEXT score length so that
-    // an oversized TEXT value fails fast as a non-retryable `INVALID_RESULT`
-    // at the dispatcher, instead of being silently dropped later by the
-    // ingestion consumer after the `JobExecution` is already marked
-    // COMPLETED.
-    value: z.string().min(1).max(TEXT_SCORE_MAX_LENGTH),
-    dataType: z.literal(ScoreDataTypeEnum.TEXT),
-  }),
-  z.object({
-    ...codeEvalScoreBase,
-    value: z.union([z.string(), z.number()]),
-    dataType: z.undefined().optional(),
-  }),
-]);
+          ctx.addIssue({
+            code: "custom",
+            message: `Invalid boolean value: ${JSON.stringify(v)}`,
+          });
+          return z.NEVER;
+        }),
+      dataType: z.literal(ScoreDataTypeEnum.BOOLEAN),
+    }),
+    z.object({
+      ...codeEvalScoreBase,
+      value: z.string().min(1).max(textMaxLength),
+      dataType: z.literal(ScoreDataTypeEnum.TEXT),
+    }),
+    z.object({
+      ...codeEvalScoreBase,
+      value: z.union([z.string(), z.number()]),
+      dataType: z.undefined().optional(),
+    }),
+  ]);
+}
+
+const CodeEvalScoreSchema = buildCodeEvalScoreSchema(TEXT_SCORE_MAX_LENGTH);
+const RunCodeEvalScoreSchema = buildCodeEvalScoreSchema(
+  CODE_EVAL_RUN_TEXT_MAX_LENGTH,
+);
 
 const CodeEvalDispatchResultSchema = z.object({
   scores: z.array(CodeEvalScoreSchema).min(1),
+});
+
+const RunCodeEvalDispatchResultSchema = z.object({
+  scores: z.array(RunCodeEvalScoreSchema).min(1),
 });
 
 export type CodeEvalScore = z.infer<typeof CodeEvalScoreSchema>;
@@ -265,7 +287,23 @@ export function assertDispatchResultWithinByteLimit(byteSize: number): void {
 }
 
 export function parseDispatchResult(result: unknown): DispatchResult {
-  const parsed = CodeEvalDispatchResultSchema.safeParse(result);
+  return parseWithSchema(CodeEvalDispatchResultSchema, result);
+}
+
+/**
+ * Result validation for the ad-hoc run endpoint: identical to
+ * {@link parseDispatchResult} except that TEXT values may use
+ * {@link CODE_EVAL_RUN_TEXT_MAX_LENGTH} characters.
+ */
+export function parseRunDispatchResult(result: unknown): DispatchResult {
+  return parseWithSchema(RunCodeEvalDispatchResultSchema, result);
+}
+
+function parseWithSchema(
+  schema: z.ZodType<DispatchResult>,
+  result: unknown,
+): DispatchResult {
+  const parsed = schema.safeParse(result);
 
   if (!parsed.success) {
     throw new CodeEvalDispatcherError(

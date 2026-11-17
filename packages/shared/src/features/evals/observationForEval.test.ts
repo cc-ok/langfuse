@@ -4,6 +4,7 @@ import {
   type ObservationForEval,
   zipObservationToolCalls,
 } from "./observationForEval";
+import { extractObservationVariables } from "../../server/evals/extractObservationVariables";
 
 describe("zipObservationToolCalls", () => {
   it("zips ClickHouse parallel arrays into named tool calls with parsed arguments", () => {
@@ -132,5 +133,33 @@ describe("mapEventEvalFilterColumnIdToField", () => {
         "isExperimentItemRootSpan",
       ),
     ).toBe(false);
+  });
+});
+
+describe("PRE-LABEL text metadata", () => {
+  it("resolves a JSON-encoded `pre` object through the item metadata column", () => {
+    // Callers write PRE-LABEL texts as one JSON object under `pre`
+    // (`langfuse.experiment.item.metadata.pre`). Ingestion keeps it as a
+    // string, so the read side parses it before JSONPath can see it.
+    const observation = {
+      experiment_item_metadata: {
+        pre: '{"history_text": "【第1轮】用户: 退货多久到账 😀\\n客服回答: 3-5 个工作日"}',
+      },
+    } as unknown as ObservationForEval;
+
+    const [resolved] = extractObservationVariables({
+      observation,
+      variableMapping: [
+        {
+          templateVariable: "history_text",
+          selectedColumnId: "experimentItemMetadata",
+          jsonSelector: "$.pre.history_text",
+        },
+      ],
+    });
+
+    expect(resolved.value).toBe(
+      "【第1轮】用户: 退货多久到账 😀\n客服回答: 3-5 个工作日",
+    );
   });
 });

@@ -342,6 +342,27 @@ describe("unstable code evaluator run public API", () => {
     expect(status).toBe(422);
   });
 
+  it("accepts TEXT longer than the score ingestion cap", async () => {
+    // 500 characters is the score cap scheduled evaluations must respect;
+    // a run writes no score, so callers can reuse longer text as prompt input.
+    const { auth, evaluator } = await createEvaluator(`
+      function evaluate() {
+        return { scores: [{ name: "history_text", value: "h".repeat(2000), dataType: "TEXT" }] };
+      }
+    `);
+
+    const response = await makeZodVerifiedAPICall(
+      RunEvaluatorResponse,
+      "POST",
+      RUN_URL(evaluator.id),
+      { payload: { output: "{}" } },
+      auth,
+    );
+
+    expect(response.body.scores[0].value).toBe("h".repeat(2000));
+    expect(response.body.scores[0].dataType).toBe("TEXT");
+  });
+
   it("does not block other requests while a script runs", async () => {
     const { auth, evaluator } = await createEvaluator(SLOW_SOURCE);
 
